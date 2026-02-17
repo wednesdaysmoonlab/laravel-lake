@@ -1,6 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+_lake_logo() {
+  local sky=$'\e[38;5;117m' db=$'\e[38;5;27m' ls=$'\e[38;5;153m' r=$'\e[0m'
+  local line out i char
+  while IFS= read -r line; do
+    out=""
+    for (( i=0; i<${#line}; i++ )); do
+      char="${line:$i:1}"
+      case "$char" in
+        _)  out+="${ls}_" ;;
+        /)  out+="${sky}/" ;;
+        \\) out+="${sky}\\" ;;
+        *)  out+="${r}${char}" ;;
+      esac
+    done
+    printf '%s%s\n' "$out" "$r"
+  done << 'LOGO'
+     _/\/\____________________/\/\___________________
+    _/\/\________/\/\/\______/\/\__/\/\____/\/\/\___
+   _/\/\____________/\/\____/\/\/\/\____/\/\/\/\/\_
+  _/\/\________/\/\/\/\____/\/\/\/\____/\/\_______
+ _/\/\/\/\/\__/\/\/\/\/\__/\/\__/\/\____/\/\/\/\_
+________________________________________________
+LOGO
+}
+_lake_logo
+unset -f _lake_logo
+
 # ======================================
 #  lake.setup
 #  Laravel + FrankenPHP bootstrap
@@ -21,7 +48,7 @@ Usage:
   ./lake.setup [OPTIONS]
 
 Options:
-  --clean       Remove everything in this directory except lake.setup and .claude
+  --clean       Remove everything in this directory except lake.setup, .claude, and .git
   --clean-app   Remove Laravel app files only; keep .lake/ (FrankenPHP, Composer, installer)
   --help, -h    Show this help message
 
@@ -46,6 +73,7 @@ if [[ "${1:-}" == "--clean" ]]; then
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
     ! -name ".claude" \
+    ! -name ".git" \
     -exec rm -rf {} +
   echo "Done."
   exit 0
@@ -62,11 +90,62 @@ if [[ "${1:-}" == "--clean-app" ]]; then
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
     ! -name ".claude" \
+    ! -name ".git" \
     ! -name ".lake" \
     -exec rm -rf {} +
   echo "Done. Run ./lake.setup to reinstall Laravel."
   exit 0
 fi
+
+# ----------------------------
+# PREFLIGHT CHECKS
+# ----------------------------
+
+_box_row() {
+  # ✅ and ❌ are 1 bash codepoint but render as 2 visual columns.
+  # Compute the padding spaces explicitly to keep the right border aligned.
+  local text="$1" dw=0
+  [[ "$text" == *"✅"* ]] && dw=1
+  [[ "$text" == *"❌"* ]] && dw=1
+  local spaces=$(( 49 - ${#text} - dw ))
+  printf "│%s%${spaces}s│\n" "$text" ""
+}
+
+_ok=true
+
+# curl — required for downloading FrankenPHP and Composer
+if command -v curl &>/dev/null; then
+  _curl_row="  ✅ curl            required"
+else
+  _curl_row="  ❌ curl            required — please install"
+  _ok=false
+fi
+
+# node + npm — required for Vite (dev server only)
+if command -v node &>/dev/null && command -v npm &>/dev/null; then
+  _node_row="  ✅ node, npm       for dev server"
+elif ! command -v node &>/dev/null && ! command -v npm &>/dev/null; then
+  _node_row="  ⚠️  node, npm       for dev server"
+elif ! command -v node &>/dev/null; then
+  _node_row="  ⚠️  node            for dev server"
+else
+  _node_row="  ⚠️  npm             for dev server"
+fi
+
+echo "┌─────────────────────────────────────────────────┐"
+echo "│  Requirements                                   │"
+echo "├─────────────────────────────────────────────────┤"
+_box_row "$_curl_row"
+_box_row "$_node_row"
+echo "└─────────────────────────────────────────────────┘"
+echo ""
+
+if [[ "$_ok" == false ]]; then
+  exit 1
+fi
+
+unset -f _box_row
+unset _ok _curl_row _node_row
 
 # ----------------------------
 # CONFIG
