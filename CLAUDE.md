@@ -29,8 +29,8 @@ FRANKEN_VERSION=1.11.2 LAKE_PORT=9000 ./lake.setup   # with overrides
 .lake/composer run test
 
 # Reset
-./lake.setup --clean        # Remove everything except lake.setup and .claude
-./lake.setup --clean-app    # Remove Laravel files only; keep .lake/ (~170 MB of binaries)
+./lake.setup purge    # Remove everything except lake.setup and .claude
+./lake.setup clean    # Remove Laravel files only; keep .lake/ (~170 MB of binaries)
 ```
 
 ## Architecture
@@ -59,7 +59,7 @@ _say() { printf '\e[38;5;117m✦\e[0m %s\n' "$*"; }
 - Color `\e[38;5;117m` is sky blue, matching the ASCII logo palette.
 - Use `_say "message"` for every new status/info line added to the script.
 - Keep `echo ""` for blank lines and `echo "==="` for decorative separators — those do not use `_say`.
-- The `_say` function is defined at the top of the main script body (after the logo), so it is available everywhere including `--clean` and `--clean-app` blocks.
+- The `_say` function is defined at the top of the main script body (after the logo), so it is available everywhere including `purge` and `clean` commands.
 
 ## Post-install patching
 

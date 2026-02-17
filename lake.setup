@@ -55,17 +55,17 @@ LAKE_SETUP_VERSION="0.1.0"
 # --help FLAG
 # ----------------------------
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+if [[ "${1:-}" == "help" || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<HELPEOF
 lake.setup v${LAKE_SETUP_VERSION}
 
 Usage:
-  ./lake.setup [OPTIONS]
+  ./lake.setup [COMMAND]
 
-Options:
-  --clean       Remove everything in this directory except lake.setup, .claude, .git, .gitignore, CLAUDE.md, and README.md
-  --clean-app   Remove Laravel app files only; keep .lake/ (FrankenPHP, Composer, installer)
-  --help, -h    Show this help message
+Commands:
+  purge         Remove everything in this directory except lake.setup, .claude, .git, .gitignore, CLAUDE.md, and README.md
+  clean         Remove Laravel app files only; keep .lake/ (FrankenPHP, Composer, installer)
+  help          Show this help message
 
 Environment overrides:
   FRANKEN_VERSION=1.11.2   Pin a specific FrankenPHP version (default: latest)
@@ -78,10 +78,10 @@ HELPEOF
 fi
 
 # ----------------------------
-# --clean FLAG
+# purge COMMAND
 # ----------------------------
 
-if [[ "${1:-}" == "--clean" ]]; then
+if [[ "${1:-}" == "purge" ]]; then
   if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
@@ -89,7 +89,7 @@ if [[ "${1:-}" == "--clean" ]]; then
     SCRIPT_DIR="$(pwd)"
     SCRIPT_NAME=""
   fi
-  _say "Cleaning $SCRIPT_DIR (keeping $SCRIPT_NAME)..."
+  _say "Purging $SCRIPT_DIR (keeping $SCRIPT_NAME)..."
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
     ! -name ".claude" \
@@ -103,10 +103,10 @@ if [[ "${1:-}" == "--clean" ]]; then
 fi
 
 # ----------------------------
-# --clean-app FLAG
+# clean COMMAND
 # ----------------------------
 
-if [[ "${1:-}" == "--clean-app" ]]; then
+if [[ "${1:-}" == "clean" ]]; then
   if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
