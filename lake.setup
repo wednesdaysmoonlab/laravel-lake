@@ -68,7 +68,7 @@ Commands:
   help          Show this help message
 
 Environment overrides:
-  FRANKEN_VERSION=1.11.2   Pin a specific FrankenPHP version (default: latest)
+  FRANKEN_VERSION=1.11.2   Pin a specific FrankenPHP version (skips interactive prompt)
   LAKE_PORT=9000            Skip the port prompt and use this port
 
 Example:
@@ -129,6 +129,23 @@ if [[ "${1:-}" == "clean" ]]; then
 fi
 
 # ----------------------------
+# INTRODUCTION
+# ----------------------------
+
+echo "┌─────────────────────────────────────────────────┐"
+echo "│  Here's what Lake will do                       │"
+echo "├─────────────────────────────────────────────────┤"
+echo "│                                                 │"
+echo "│  1. 📥  Download FrankenPHP & Composer          │"
+echo "│  2. 🚀  Create a new Laravel project            │"
+echo "│  3. 🔧  Configure FrankenPHP as web server      │"
+echo "│  4. 💾  Set up database & run migrations         │"
+echo "│  5. 🎉  Your app will be ready to go!           │"
+echo "│                                                 │"
+echo "└─────────────────────────────────────────────────┘"
+echo ""
+
+# ----------------------------
 # PREFLIGHT CHECKS
 # ----------------------------
 
@@ -182,7 +199,19 @@ unset _ok _curl_row _node_row
 # CONFIG
 # ----------------------------
 
-FRANKEN_VERSION="${FRANKEN_VERSION:-latest}"   # override: FRANKEN_VERSION=1.11.2 ./lake.setup
+# Resolve FrankenPHP version: env override → prompt (with latest as default)
+if [[ -n "${FRANKEN_VERSION:-}" ]]; then
+  _say "FrankenPHP version pinned by env: $FRANKEN_VERSION"
+else
+  _say "Checking latest FrankenPHP version..."
+  _latest_ver=$(curl -sI "https://github.com/php/frankenphp/releases/latest" \
+    | grep -i "^location:" | sed 's|.*/v||' | tr -d '[:space:\r\n]')
+  if [[ -z "$_latest_ver" ]]; then
+    _say "Could not determine latest version; will use 'latest' redirect."
+    _latest_ver="latest"
+  fi
+  FRANKEN_VERSION=$(_ask "FrankenPHP version [${_latest_ver}]:" "$_latest_ver")
+fi
 
 # If LAKE_PORT is not set via env, prompt the user (default: 8090)
 if [[ -z "${LAKE_PORT:-}" ]]; then
