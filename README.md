@@ -35,17 +35,20 @@ No PHP, no Composer, no Docker needed on the host machine.
 
 ## Getting Started
 
-### 1. Download the setup script
+### Option A — One-liner (curl)
+
+In an empty directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wednesdaysmoonlab/laravel-lake/main/lake.setup | bash
+```
+
+### Option B — Download first
 
 Place `lake.setup` in an empty directory and make it executable:
 
 ```bash
 chmod +x lake.setup
-```
-
-### 2. Run setup
-
-```bash
 ./lake.setup
 ```
 
@@ -200,6 +203,22 @@ Laravel's default `composer run dev` uses `php artisan serve` (PHP's built-in `-
 
 ## Known Limitations
 
-- **`PHP_BINARY` constant** — Under FrankenPHP's php-cli mode, the `PHP_BINARY` PHP constant returns an empty string. Packages that spawn PHP sub-processes using this constant directly (e.g. Laravel Boost's `boost:execute-tool`, `boost:install`) will show a `ValueError: First element must contain a non-empty program name` error. This is non-fatal — the app runs normally, but MCP tool execution features of Laravel Boost will not work.
 - **`php artisan serve`** — Not supported. Use `.lake/frankenphp run` or `composer run dev` instead.
 - **Global PHP/Composer** — The `.lake/` shims are project-local. They do not affect any system-installed PHP or Composer.
+
+### PHP_BINARY auto-patcher
+
+FrankenPHP's php-cli mode leaves the `PHP_BINARY` PHP constant as an empty string. Packages that pass this constant directly to `Symfony\Process` (e.g. Laravel Boost, PHPUnit, Collision) would fail with `ValueError: First element must contain a non-empty program name`.
+
+Lake handles this automatically:
+
+1. **`.lake/php` shim** — exports the `PHP_BINARY` environment variable pointing to itself, so `Symfony\PhpExecutableFinder` resolves correctly.
+2. **`.lake/fix-php-binary`** — a Composer `post-autoload-dump` hook that patches vendor files using direct `PHP_BINARY` constant references to fall back to the environment variable:
+   ```php
+   // Before
+   PHP_BINARY
+   // After
+   (getenv('PHP_BINARY') ?: (PHP_BINARY ?: 'php'))
+   ```
+3. The patches are **backwards-compatible** — on standard PHP (where the env var is unset), the expression falls through to the constant, preserving original behavior.
+4. The patches are **re-applied automatically** after every `composer install`, `update`, or `require`.

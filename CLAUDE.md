@@ -39,10 +39,11 @@ The entire bootstrap logic lives in `lake.setup`. There is no build step — it 
 
 **Key design decisions:**
 
-- `.lake/php` is a shim that strips `-d` flags before delegating to `frankenphp php-cli`. This is necessary because Composer always passes `-d allow_url_fopen=1` and similar flags that FrankenPHP's php-cli mode does not accept.
-- `.lake/composer` sets `PHP_BINARY` and prepends `.lake/` to `PATH` before invoking `frankenphp php-cli composer.phar`. This ensures `@php` hooks in Composer scripts resolve to the shim.
+- `.lake/php` is a shim that exports `PHP_BINARY` (pointing to itself) and strips `-d` flags before delegating to `frankenphp php-cli`. The env-var export works around FrankenPHP leaving the `PHP_BINARY` PHP constant empty.
+- `.lake/composer` also sets `PHP_BINARY` and prepends `.lake/` to `PATH` before invoking `frankenphp php-cli composer.phar`. This ensures `@php` hooks in Composer scripts resolve to the shim.
+- `.lake/fix-php-binary` is a Composer `post-autoload-dump` hook that patches vendor files using `PHP_BINARY` directly (e.g. `[PHP_BINARY, ...]`) to fall back to the env var. This runs automatically on every `composer install/update/require`.
 - `laravel new` is run into a temporary subdirectory (`.laravel_setup_tmp/`) and then moved to the project root — because the installer requires an empty directory.
 - The `composer.json` dev script is patched post-install: `php artisan serve` → `.lake/frankenphp run` (FrankenPHP uses a `Caddyfile`; it does not support PHP's built-in `-S` server).
 - SQLite is the default database. A `database/database.sqlite` file is created and `migrate` is run automatically.
 
-**Known limitation:** The `PHP_BINARY` constant is empty under FrankenPHP php-cli mode. Packages that spawn PHP sub-processes via `PHP_BINARY` (e.g. Laravel Boost) will fail at that step, but the app runs normally otherwise.
+**Known caveat:** The `PHP_BINARY` PHP constant is empty under FrankenPHP php-cli mode. The `.lake/php` shim exports the env var and `.lake/fix-php-binary` patches vendor call-sites on every Composer dump, so packages like Laravel Boost work out of the box.

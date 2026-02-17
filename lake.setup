@@ -67,8 +67,13 @@ fi
 # ----------------------------
 
 if [[ "${1:-}" == "--clean" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+  else
+    SCRIPT_DIR="$(pwd)"
+    SCRIPT_NAME=""
+  fi
   echo "Cleaning $SCRIPT_DIR (keeping $SCRIPT_NAME)..."
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
@@ -87,8 +92,13 @@ fi
 # ----------------------------
 
 if [[ "${1:-}" == "--clean-app" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+  else
+    SCRIPT_DIR="$(pwd)"
+    SCRIPT_NAME=""
+  fi
   echo "Cleaning Laravel app files (keeping .lake/, $SCRIPT_NAME)..."
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
@@ -161,13 +171,17 @@ FRANKEN_VERSION="${FRANKEN_VERSION:-latest}"   # override: FRANKEN_VERSION=1.11.
 
 # If LAKE_PORT is not set via env, prompt the user (default: 8090)
 if [[ -z "${LAKE_PORT:-}" ]]; then
-  read -rp "Dev server port [8090]: " _input_port
+  read -rp "Dev server port [8090]: " _input_port </dev/tty
   LAKE_PORT="${_input_port:-8090}"
 fi
 COMPOSER_URL="https://getcomposer.org/composer.phar"
 
 # All tools live in .lake/ so Composer won't count them as "existing files"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR="$(pwd)"   # piped mode (curl ... | bash): use current directory
+fi
 TOOLS_DIR="$SCRIPT_DIR/.lake"
 FRANKEN_BIN="$TOOLS_DIR/frankenphp"
 COMPOSER_BIN="$TOOLS_DIR/composer.phar"
@@ -221,9 +235,31 @@ else
 fi
 
 # .lake/php — strips Composer's -d flags then delegates to frankenphp php-cli
-if [[ ! -f "$TOOLS_DIR/php" ]]; then
-  cat > "$TOOLS_DIR/php" <<'SHIMEOF'
+# Also auto-patches PHP_BINARY references in vendor/ on first call per project.
+# This is critical for `laravel new` with Boost: the installer calls `.lake/php
+# artisan boost:install`, and the shim patches vendor files BEFORE the PHP
+# process starts — so Boost's code sees the fixed references.
+cat > "$TOOLS_DIR/php" <<'SHIMEOF'
 #!/usr/bin/env bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# FrankenPHP php-cli leaves the PHP_BINARY constant empty.
+# Export it as an env var so Symfony's PhpExecutableFinder picks up this shim.
+export PHP_BINARY="$DIR/php"
+export PATH="$DIR:$PATH"
+# Auto-patch PHP_BINARY references in vendor/ when packages change.
+# Compare marker timestamp against installed.json so new packages get patched.
+if [[ -d "vendor" ]] && [[ -f "$DIR/fix-php-binary" ]]; then
+  _need_patch=0
+  if [[ ! -f "vendor/.lake-patched" ]]; then
+    _need_patch=1
+  elif [[ -f "vendor/composer/installed.json" ]] && [[ "vendor/composer/installed.json" -nt "vendor/.lake-patched" ]]; then
+    _need_patch=1
+  fi
+  if [[ $_need_patch -eq 1 ]]; then
+    "$DIR/frankenphp" php-cli "$DIR/fix-php-binary" "$(pwd)/vendor" 2>/dev/null
+    touch "vendor/.lake-patched"
+  fi
+fi
 # Composer passes "-d allow_url_fopen=1 -d disable_functions=" before the script.
 # FrankenPHP php-cli doesn't handle -d flags — strip them.
 args=()
@@ -233,10 +269,9 @@ for arg in "$@"; do
   if [[ "$arg" == "-d" ]]; then skip=1; continue; fi
   args+=("$arg")
 done
-exec "$(dirname "$0")/frankenphp" php-cli "${args[@]}"
+exec "$DIR/frankenphp" php-cli "${args[@]}"
 SHIMEOF
-  chmod +x "$TOOLS_DIR/php"
-fi
+chmod +x "$TOOLS_DIR/php"
 
 # .lake/composer — runs composer.phar with PHP_BINARY set so @php hooks work
 if [[ ! -f "$TOOLS_DIR/composer" ]]; then
@@ -249,6 +284,55 @@ exec "$DIR/frankenphp" php-cli "$DIR/composer.phar" "$@"
 SHIMEOF
   chmod +x "$TOOLS_DIR/composer"
 fi
+
+# .lake/fix-php-binary — Composer post-autoload-dump hook.
+# FrankenPHP php-cli leaves the PHP_BINARY constant empty. Packages that pass
+# PHP_BINARY directly to Symfony Process (e.g. laravel/boost) will fail with
+# "First element must contain a non-empty program name". This script patches
+# those call-sites to fall back to the PHP_BINARY env var (exported by .lake/php).
+cat > "$TOOLS_DIR/fix-php-binary" <<'FIXEOF'
+#!/usr/bin/env php
+<?php
+// Accept vendor path as argument (used by .lake/php shim), fall back to CWD then script parent.
+$vendor = $argv[1] ?? (is_dir(getcwd() . '/vendor') ? getcwd() . '/vendor' : dirname(__DIR__) . '/vendor');
+if (!is_dir($vendor)) exit(0);
+
+$marker = '/*lake:phpbin*/';
+$fallback = "({$marker}(getenv('PHP_BINARY') ?: (PHP_BINARY ?: 'php')))";
+
+$rii = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($vendor, RecursiveDirectoryIterator::SKIP_DOTS)
+);
+
+$count = 0;
+foreach ($rii as $file) {
+    if ($file->getExtension() !== 'php') continue;
+    $content = file_get_contents($path = $file->getPathname());
+    if (strpos($content, 'PHP_BINARY') === false) continue;
+    if (strpos($content, $marker) !== false) continue;
+
+    $patched = $content;
+    // Array context: [PHP_BINARY, ...] or [PHP_BINARY]
+    $patched = str_replace('[PHP_BINARY,',  "[$fallback,",  $patched);
+    $patched = str_replace('[PHP_BINARY]',  "[$fallback]",  $patched);
+    // Return statements
+    $patched = str_replace('return PHP_BINARY;', "return $fallback;", $patched);
+    // Standalone array element on its own line (e.g. ToolExecutor)
+    $patched = preg_replace('/^(\s+)PHP_BINARY,$/m', "$1$fallback,", $patched);
+    // Function argument: escapeshellarg(PHP_BINARY)
+    $patched = str_replace('(PHP_BINARY)',  "($fallback)",  $patched);
+
+    if ($patched !== $content) {
+        file_put_contents($path, $patched);
+        $count++;
+    }
+}
+
+if ($count > 0) {
+    echo "  Lake: patched PHP_BINARY in $count vendor file(s) for FrankenPHP compatibility." . PHP_EOL;
+}
+FIXEOF
+chmod +x "$TOOLS_DIR/fix-php-binary"
 
 # Prepend .lake to PATH so every @php call in Composer hooks uses the shim.
 # Also set PHP_BINARY so Composer doesn't fall back to adding composer.phar to
@@ -309,7 +393,7 @@ else
   echo "Creating Laravel project..."
   # Use a temp subdir so the installer gets a clean empty directory.
   # cd "$SCRIPT_DIR" has already run above, so the relative name resolves correctly.
-  COMPOSER_HOME="$TOOLS_DIR" "$FRANKEN_BIN" php-cli "$LARAVEL_BIN" new "$TMP_DIRNAME"
+  COMPOSER_HOME="$TOOLS_DIR" "$FRANKEN_BIN" php-cli "$LARAVEL_BIN" new "$TMP_DIRNAME" </dev/tty
 
   if [[ ! -d "$TMP_DIR" ]]; then
     echo "ERROR: laravel new did not produce $TMP_DIR — check installer output above."
@@ -340,6 +424,23 @@ if grep -q "php artisan serve" composer.json 2>/dev/null; then
   echo "Patched composer.json: php artisan serve → .lake/frankenphp run"
 fi
 
+# Register .lake/fix-php-binary as a Composer post-autoload-dump hook so that
+# every `composer install/update/require` automatically patches PHP_BINARY
+# references in vendor files for FrankenPHP compatibility.
+if [[ -f "composer.json" ]] && ! grep -q "fix-php-binary" composer.json 2>/dev/null; then
+  "$FRANKEN_BIN" php-cli -r "
+    \$json = json_decode(file_get_contents('composer.json'), true);
+    \$hook = '@php .lake/fix-php-binary';
+    \$pad = \$json['scripts']['post-autoload-dump'] ?? [];
+    if (!in_array(\$hook, \$pad, true)) {
+        \$pad[] = \$hook;
+        \$json['scripts']['post-autoload-dump'] = \$pad;
+        file_put_contents('composer.json', json_encode(\$json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . \"\n\");
+    }
+  "
+  echo "Patched composer.json: added post-autoload-dump hook for PHP_BINARY fix"
+fi
+
 # ----------------------------
 # INSTALL / ENSURE DEPENDENCIES
 # ----------------------------
@@ -347,6 +448,11 @@ fi
 if [[ ! -d "vendor" ]]; then
   echo "Running composer install..."
   "$FRANKEN_BIN" php-cli "$COMPOSER_BIN" install --no-interaction
+fi
+
+# Run the PHP_BINARY fixer (subsequent runs are triggered automatically by Composer).
+if [[ -d "vendor" ]]; then
+  "$FRANKEN_BIN" php-cli "$TOOLS_DIR/fix-php-binary"
 fi
 
 # ----------------------------
