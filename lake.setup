@@ -28,6 +28,8 @@ LOGO
 _lake_logo
 unset -f _lake_logo
 
+_say() { printf '\e[38;5;117m✦\e[0m %s\n' "$*"; }
+
 # ======================================
 #  lake.setup
 #  Laravel + FrankenPHP bootstrap
@@ -74,7 +76,7 @@ if [[ "${1:-}" == "--clean" ]]; then
     SCRIPT_DIR="$(pwd)"
     SCRIPT_NAME=""
   fi
-  echo "Cleaning $SCRIPT_DIR (keeping $SCRIPT_NAME)..."
+  _say "Cleaning $SCRIPT_DIR (keeping $SCRIPT_NAME)..."
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
     ! -name ".claude" \
@@ -83,7 +85,7 @@ if [[ "${1:-}" == "--clean" ]]; then
     ! -name "CLAUDE.md" \
     ! -name "README.md" \
     -exec rm -rf {} +
-  echo "Done."
+  _say "Done."
   exit 0
 fi
 
@@ -99,7 +101,7 @@ if [[ "${1:-}" == "--clean-app" ]]; then
     SCRIPT_DIR="$(pwd)"
     SCRIPT_NAME=""
   fi
-  echo "Cleaning Laravel app files (keeping .lake/, $SCRIPT_NAME)..."
+  _say "Cleaning Laravel app files (keeping .lake/, $SCRIPT_NAME)..."
   find "$SCRIPT_DIR" -mindepth 1 -maxdepth 1 \
     ! -name "$SCRIPT_NAME" \
     ! -name ".claude" \
@@ -109,7 +111,7 @@ if [[ "${1:-}" == "--clean-app" ]]; then
     ! -name "README.md" \
     ! -name ".lake" \
     -exec rm -rf {} +
-  echo "Done. Run ./lake.setup to reinstall Laravel."
+  _say "Done. Run ./lake.setup to reinstall Laravel."
   exit 0
 fi
 
@@ -198,14 +200,14 @@ _ARCH="$(uname -m)"
 case "$_OS" in
   Linux*)  FRANKEN_OS="linux" ;;
   Darwin*) FRANKEN_OS="mac"   ;;
-  *)       echo "Unsupported OS: $_OS"; exit 1 ;;
+  *)       _say "Unsupported OS: $_OS"; exit 1 ;;
 esac
 
 # Linux filenames use "x86_64"/"aarch64"; Mac uses "x86_64"/"arm64" — pass uname -m through directly
 FRANKEN_ARCH="$_ARCH"
 FRANKEN_FILENAME="frankenphp-${FRANKEN_OS}-${FRANKEN_ARCH}"
 
-echo "OS: $FRANKEN_OS  ARCH: $FRANKEN_ARCH  Binary: $FRANKEN_FILENAME"
+_say "OS: $FRANKEN_OS  ARCH: $FRANKEN_ARCH  Binary: $FRANKEN_FILENAME"
 
 # ----------------------------
 # BUILD DOWNLOAD URL
@@ -226,12 +228,12 @@ fi
 # ----------------------------
 
 if [[ -f "$FRANKEN_BIN" ]]; then
-  echo "FrankenPHP already in .lake/, skipping download."
+  _say "FrankenPHP already in .lake/, skipping download."
 else
-  echo "Downloading FrankenPHP from: $FRANKEN_URL"
+  _say "Downloading FrankenPHP from: $FRANKEN_URL"
   curl -L --progress-bar "$FRANKEN_URL" -o "$FRANKEN_BIN"
   chmod +x "$FRANKEN_BIN"
-  echo "FrankenPHP ready."
+  _say "FrankenPHP ready."
 fi
 
 # .lake/php — strips Composer's -d flags then delegates to frankenphp php-cli
@@ -346,12 +348,12 @@ export PHP_BINARY="$TOOLS_DIR/php"
 # ----------------------------
 
 if [[ -f "$COMPOSER_BIN" ]]; then
-  echo "composer.phar already in .lake/, skipping download."
+  _say "composer.phar already in .lake/, skipping download."
 else
-  echo "Downloading composer.phar..."
+  _say "Downloading composer.phar..."
   curl -L --progress-bar "$COMPOSER_URL" -o "$COMPOSER_BIN"
   chmod +x "$COMPOSER_BIN"
-  echo "Composer ready."
+  _say "Composer ready."
 fi
 
 cd "$SCRIPT_DIR"
@@ -367,11 +369,11 @@ cd "$SCRIPT_DIR"
 LARAVEL_BIN="$TOOLS_DIR/vendor/bin/laravel"
 
 if [[ -f "$LARAVEL_BIN" ]]; then
-  echo "laravel/installer already in .lake/, skipping."
+  _say "laravel/installer already in .lake/, skipping."
 else
-  echo "Installing laravel/installer..."
+  _say "Installing laravel/installer..."
   COMPOSER_HOME="$TOOLS_DIR" "$FRANKEN_BIN" php-cli "$COMPOSER_BIN" global require laravel/installer --no-interaction
-  echo "Laravel installer ready."
+  _say "Laravel installer ready."
 fi
 
 # ----------------------------
@@ -383,7 +385,7 @@ fi
 # framework, and more — then handles composer install + initial setup itself.
 
 if [[ -f "$SCRIPT_DIR/artisan" ]]; then
-  echo "Laravel already installed (artisan found), skipping."
+  _say "Laravel already installed (artisan found), skipping."
 else
   TMP_DIRNAME=".laravel_setup_tmp"
   TMP_DIR="$SCRIPT_DIR/$TMP_DIRNAME"
@@ -391,13 +393,13 @@ else
   # Clean up any leftover temp dir from a previous failed run
   [[ -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
 
-  echo "Creating Laravel project..."
+  _say "Creating Laravel project..."
   # Use a temp subdir so the installer gets a clean empty directory.
   # cd "$SCRIPT_DIR" has already run above, so the relative name resolves correctly.
   COMPOSER_HOME="$TOOLS_DIR" "$FRANKEN_BIN" php-cli "$LARAVEL_BIN" new "$TMP_DIRNAME" </dev/tty
 
   if [[ ! -d "$TMP_DIR" ]]; then
-    echo "ERROR: laravel new did not produce $TMP_DIR — check installer output above."
+    _say "ERROR: laravel new did not produce $TMP_DIR — check installer output above."
     exit 1
   fi
 
@@ -405,7 +407,7 @@ else
   cp -a "$TMP_DIR/." "$SCRIPT_DIR/"
   rm -rf "$TMP_DIR"
 
-  echo "Laravel files installed."
+  _say "Laravel files installed."
 fi
 
 # ----------------------------
@@ -422,7 +424,7 @@ if grep -q "php artisan serve" composer.json 2>/dev/null; then
   else
     sed -i 's|php artisan serve|.lake/frankenphp run|g' composer.json
   fi
-  echo "Patched composer.json: php artisan serve → .lake/frankenphp run"
+  _say "Patched composer.json: php artisan serve → .lake/frankenphp run"
 fi
 
 # Register .lake/fix-php-binary as a Composer post-autoload-dump hook so that
@@ -439,7 +441,7 @@ if [[ -f "composer.json" ]] && ! grep -q "fix-php-binary" composer.json 2>/dev/n
         file_put_contents('composer.json', json_encode(\$json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . \"\n\");
     }
   "
-  echo "Patched composer.json: added post-autoload-dump hook for PHP_BINARY fix"
+  _say "Patched composer.json: added post-autoload-dump hook for PHP_BINARY fix"
 fi
 
 # ----------------------------
@@ -447,7 +449,7 @@ fi
 # ----------------------------
 
 if [[ ! -d "vendor" ]]; then
-  echo "Running composer install..."
+  _say "Running composer install..."
   "$FRANKEN_BIN" php-cli "$COMPOSER_BIN" install --no-interaction
 fi
 
@@ -462,7 +464,7 @@ fi
 
 if [[ ! -f ".env" ]]; then
   cp .env.example .env
-  echo ".env created from .env.example"
+  _say ".env created from .env.example"
 fi
 
 # Align APP_URL with the FrankenPHP port (Laravel defaults to 8000, we use LAKE_PORT)
@@ -471,26 +473,26 @@ if [[ "$_OS" == "Darwin" ]]; then
 else
   sed -i "s|^APP_URL=.*|APP_URL=http://localhost:${LAKE_PORT}|" .env
 fi
-echo "APP_URL set to http://localhost:${LAKE_PORT}"
+_say "APP_URL set to http://localhost:${LAKE_PORT}"
 
 if grep -q "^APP_KEY=base64:" .env 2>/dev/null; then
-  echo "Application key already set, skipping."
+  _say "Application key already set, skipping."
 else
-  echo "Generating application key..."
+  _say "Generating application key..."
   "$FRANKEN_BIN" php-cli artisan key:generate --ansi
 fi
 
 # Replaces post-autoload-dump: package:discover
-echo "Discovering packages..."
+_say "Discovering packages..."
 "$FRANKEN_BIN" php-cli artisan package:discover --ansi
 
 # Replaces post-create-project-cmd: create SQLite database file + migrate
 if [[ ! -f "database/database.sqlite" ]]; then
   touch database/database.sqlite
-  echo "Created database/database.sqlite"
+  _say "Created database/database.sqlite"
 fi
 
-echo "Running migrations..."
+_say "Running migrations..."
 "$FRANKEN_BIN" php-cli artisan migrate --graceful --ansi
 
 # ----------------------------
@@ -498,7 +500,7 @@ echo "Running migrations..."
 # ----------------------------
 
 chmod -R 775 storage bootstrap/cache
-echo "Storage permissions set."
+_say "Storage permissions set."
 
 # ----------------------------
 # CREATE DEV Caddyfile
@@ -518,7 +520,7 @@ http://localhost:${LAKE_PORT} {
     php_server
 }
 CADDYEOF
-  echo "Caddyfile created (port ${LAKE_PORT})."
+  _say "Caddyfile created (port ${LAKE_PORT})."
 fi
 
 # ----------------------------
@@ -527,26 +529,35 @@ fi
 
 if [[ -f ".gitignore" ]] && ! grep -qxF ".lake" .gitignore; then
   echo ".lake" >> .gitignore
-  echo "Added .lake to .gitignore"
+  _say "Added .lake to .gitignore"
 fi
 
 # ----------------------------
-# POST-INSTALL ACTIONS
+# PATCH .mcp.json FOR LAKE
 # ----------------------------
-# Scripts are downloaded on-demand from GitHub, run, then cleaned up.
-# Condition checks happen in bash so nothing is downloaded unless needed.
 
-_PA_TMP_DIR="$(mktemp -d)"
-
-# replace-mcp-command: only when .mcp.json exists with "command": "php"
+# Packages like laravel/boost write .mcp.json with "command": "php".
+# In a Lake environment there is no system PHP — rewrite to ".lake/php".
 if [[ -f ".mcp.json" ]] && grep -qE '"command"\s*:\s*"php"' .mcp.json 2>/dev/null; then
-  curl -fsSL \
-    "https://raw.githubusercontent.com/wednesdaysmoonlab/laravel-lake/main/post-actions/replace-mcp-command.php" \
-    -o "$_PA_TMP_DIR/replace-mcp-command.php"
-  "$TOOLS_DIR/php" "$_PA_TMP_DIR/replace-mcp-command.php"
+  echo ""
+  _say "Detected .mcp.json with \"command\": \"php\"."
+  _say "Lake needs to change this to \".lake/php\" (no system PHP available)."
+  read -rp "Patch .mcp.json? [Y/n]: " _mcp_confirm </dev/tty
+  _mcp_confirm="${_mcp_confirm:-Y}"
+  if [[ "$_mcp_confirm" =~ ^[Yy]$ ]]; then
+    "$FRANKEN_BIN" php-cli -r "
+      \$path = '.mcp.json';
+      \$content = file_get_contents(\$path);
+      \$patched = preg_replace('/\"command\"(\s*:\s*)\"php\"/', '\"command\"\$1\".lake/php\"', \$content);
+      if (\$patched !== null && \$patched !== \$content) {
+        file_put_contents(\$path, \$patched);
+      }
+    "
+    _say "Patched .mcp.json: php → .lake/php"
+  else
+    _say "Skipped .mcp.json patching."
+  fi
 fi
-
-rm -rf "$_PA_TMP_DIR"
 
 # ----------------------------
 # DONE
@@ -554,17 +565,17 @@ rm -rf "$_PA_TMP_DIR"
 
 echo ""
 echo "======================================"
-echo " Lake is ready"
+_say "Lake is ready"
 echo "======================================"
 echo ""
-echo "Start dev server (FrankenPHP + queue + logs + Vite):"
-echo "  .lake/composer run dev"
+_say "Start dev server (FrankenPHP + queue + logs + Vite):"
+_say "  .lake/composer run dev"
 echo ""
-echo "Then open: http://localhost:${LAKE_PORT}"
+_say "Then open: http://localhost:${LAKE_PORT}"
 echo ""
-echo "Artisan commands:"
-echo "  .lake/php artisan <command>"
+_say "Artisan commands:"
+_say "  .lake/php artisan <command>"
 echo ""
-echo "Composer commands:"
-echo "  .lake/composer require <package>"
+_say "Composer commands:"
+_say "  .lake/composer require <package>"
 echo ""

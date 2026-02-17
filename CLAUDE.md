@@ -47,3 +47,25 @@ The entire bootstrap logic lives in `lake.setup`. There is no build step — it 
 - SQLite is the default database. A `database/database.sqlite` file is created and `migrate` is run automatically.
 
 **Known caveat:** The `PHP_BINARY` PHP constant is empty under FrankenPHP php-cli mode. The `.lake/php` shim exports the env var and `.lake/fix-php-binary` patches vendor call-sites on every Composer dump, so packages like Laravel Boost work out of the box.
+
+## Output style
+
+All user-facing messages in `lake.setup` use the `_say` helper instead of plain `echo`:
+
+```bash
+_say() { printf '\e[38;5;117m✦\e[0m %s\n' "$*"; }
+```
+
+- Color `\e[38;5;117m` is sky blue, matching the ASCII logo palette.
+- Use `_say "message"` for every new status/info line added to the script.
+- Keep `echo ""` for blank lines and `echo "==="` for decorative separators — those do not use `_say`.
+- The `_say` function is defined at the top of the main script body (after the logo), so it is available everywhere including `--clean` and `--clean-app` blocks.
+
+## Post-install patching
+
+Conditional patches that run after `laravel new` are written **inline in `lake.setup`** as bash + `frankenphp php-cli -r "..."` blocks. Do not introduce external PHP scripts or downloads for these — they must work in a single-file bootstrap (including `curl | bash` installs).
+
+Current inline patches:
+- **`.mcp.json` command path** — if `.mcp.json` contains `"command": "php"` (written by packages like `laravel/boost`), the user is prompted to rewrite it to `.lake/php`. Uses `read -rp ... </dev/tty` for reliable interactive input and `frankenphp php-cli -r` for the regex replacement.
+
+**Why not `laravel/prompts` or external scripts?** FrankenPHP php-cli does not pass the TTY through correctly, so `laravel/prompts`' `confirm()` silently falls back to its default without showing a prompt. Direct `/dev/tty` reads in bash are reliable.
