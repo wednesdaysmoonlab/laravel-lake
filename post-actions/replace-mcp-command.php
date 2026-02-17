@@ -21,6 +21,15 @@ if (strpos($content, '"command": "php"') === false && strpos($content, '"command
     exit(0);
 }
 
+// Require an interactive terminal — never silently mutate files
+if (!stream_isatty(STDIN)) {
+    echo PHP_EOL;
+    warning('Detected .mcp.json with "command": "php"');
+    note('Non-interactive session — run manually to patch:');
+    note('  .lake/php post-actions/replace-mcp-command.php');
+    exit(0);
+}
+
 // Inform + confirm via laravel/prompts
 echo PHP_EOL;
 warning('Detected .mcp.json with "command": "php"');

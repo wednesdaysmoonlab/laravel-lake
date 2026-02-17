@@ -533,12 +533,20 @@ fi
 # ----------------------------
 # POST-INSTALL ACTIONS
 # ----------------------------
-# Each script in post-actions/ handles a specific conditional post-install task.
-# Add new post-install scripts here following the same pattern.
+# Scripts are downloaded on-demand from GitHub, run, then cleaned up.
+# Condition checks happen in bash so nothing is downloaded unless needed.
 
-if [[ -f "$SCRIPT_DIR/post-actions/replace-mcp-command.php" ]]; then
-  "$TOOLS_DIR/php" "$SCRIPT_DIR/post-actions/replace-mcp-command.php"
+_PA_TMP_DIR="$(mktemp -d)"
+
+# replace-mcp-command: only when .mcp.json exists with "command": "php"
+if [[ -f ".mcp.json" ]] && grep -qE '"command"\s*:\s*"php"' .mcp.json 2>/dev/null; then
+  curl -fsSL \
+    "https://raw.githubusercontent.com/wednesdaysmoonlab/laravel-lake/main/post-actions/replace-mcp-command.php" \
+    -o "$_PA_TMP_DIR/replace-mcp-command.php"
+  "$TOOLS_DIR/php" "$_PA_TMP_DIR/replace-mcp-command.php"
 fi
+
+rm -rf "$_PA_TMP_DIR"
 
 # ----------------------------
 # DONE
