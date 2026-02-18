@@ -57,9 +57,21 @@ if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   _err "Tag '${NEW_TAG}' does not look like a valid semver (X.Y.Z)."
 fi
 
-# Warn if the tag already exists
+# Warn if the tag already exists locally or on remote
 if git rev-parse "$NEW_TAG" &>/dev/null; then
   _err "Tag ${NEW_TAG} already exists locally. Choose a different version."
+fi
+if git ls-remote --tags origin "$NEW_TAG" 2>/dev/null | grep -q .; then
+  _err "Tag ${NEW_TAG} already exists on origin. Choose a different version."
+fi
+
+# Warn if the chosen version doesn't match LAKE_SETUP_VERSION in lakeup
+if [[ "$NEW_VERSION" != "$LOCAL_VERSION" ]]; then
+  printf '\e[1;33m⚠ Warning: tag %s does not match LAKE_SETUP_VERSION="%s" in lakeup.\e[0m\n' \
+    "$NEW_TAG" "$LOCAL_VERSION" >&2
+  printf '\e[1;31m❓ Continue anyway? [y/N]:\e[0m ' >&2
+  read -r _mismatch </dev/tty
+  [[ "${_mismatch:-N}" =~ ^[Yy]$ ]] || _err "Aborted. Update LAKE_SETUP_VERSION in lakeup first."
 fi
 
 echo ""
