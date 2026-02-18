@@ -18,7 +18,7 @@ docker compose up -d --build
 ### 2. Shell into it
 
 ```bash
-docker compose exec ubuntu-2404 bash
+docker compose exec lake-ubuntu-24.04 bash
 ```
 
 You are now in a shell that behaves like an SSH session into a fresh cloud server.
@@ -43,7 +43,7 @@ The curl URL above pulls from `main`. If you want to test changes before they ar
 From your host machine (outside the container):
 
 ```bash
-docker compose cp ../../../../lakeup ubuntu-2404:/workspace/lakeup
+docker compose cp ../../../../lakeup lake-ubuntu-24.04:/workspace/lakeup
 ```
 
 Then inside the container:

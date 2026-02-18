@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: lake-test-ubuntu-2404
-    container_name: lake-test-ubuntu-2404
+    container_name: lake-ubuntu-24.04
 
     # Keep stdin + tty open so the container behaves like an interactive
     # SSH session into a cloud server.
