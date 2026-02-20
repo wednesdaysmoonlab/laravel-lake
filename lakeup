@@ -239,6 +239,7 @@ esac
 
 FRANKEN_ARCH="$_ARCH"
 FRANKEN_FILENAME="frankenphp-${FRANKEN_OS}-${FRANKEN_ARCH}"
+_say "OS: $FRANKEN_OS  ARCH: $FRANKEN_ARCH  Binary: $FRANKEN_FILENAME"
 
 # ----------------------------
 # RESOLVE PATHS
@@ -253,6 +254,8 @@ TOOLS_DIR="$SCRIPT_DIR/.lake"
 FRANKEN_BIN="$TOOLS_DIR/frankenphp"
 COMPOSER_BIN="$TOOLS_DIR/composer.phar"
 LAKE_INFO_FILE="$TOOLS_DIR/.info"
+mkdir -p "$TOOLS_DIR"
+cd "$SCRIPT_DIR"
 
 # ----------------------------
 # DETECT SETUP MODE
@@ -274,14 +277,6 @@ if $LAKE_EXISTS && [[ -f "$LAKE_INFO_FILE" ]]; then
   STORED_FRANKEN_OS=$(grep     "^FRANKEN_OS="      "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
   STORED_FRANKEN_ARCH=$(grep   "^FRANKEN_ARCH="    "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
   STORED_LAKE_PORT=$(grep      "^LAKE_PORT="       "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
-fi
-
-# Flag re-download when platform changed
-if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_OS" ]]; then
-  if [[ "$STORED_FRANKEN_OS" != "$FRANKEN_OS" || "$STORED_FRANKEN_ARCH" != "$FRANKEN_ARCH" ]]; then
-    _say "Platform changed: was ${STORED_FRANKEN_OS}/${STORED_FRANKEN_ARCH}, now ${FRANKEN_OS}/${FRANKEN_ARCH}"
-    NEEDS_FRANKEN_UPDATE=true
-  fi
 fi
 
 # ----------------------------
@@ -376,15 +371,10 @@ unset _ok _curl_row _node_row
 # CONFIG
 # ----------------------------
 
-# Resolve FrankenPHP version: env override → stored value → prompt (latest as default)
+# FrankenPHP version: env override → stored value → interactive prompt
 if [[ -n "${FRANKEN_VERSION:-}" ]]; then
   _say "FrankenPHP version pinned by env: $FRANKEN_VERSION"
-  # Flag re-download if the pinned version differs from what's installed
-  if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_VERSION" ]] && [[ "$STORED_FRANKEN_VERSION" != "$FRANKEN_VERSION" ]]; then
-    _say "Version change: $STORED_FRANKEN_VERSION → $FRANKEN_VERSION"
-    NEEDS_FRANKEN_UPDATE=true
-  fi
-elif $LAKE_EXISTS && [[ -n "$STORED_FRANKEN_VERSION" ]] && ! $NEEDS_FRANKEN_UPDATE; then
+elif $LAKE_EXISTS && [[ -n "$STORED_FRANKEN_VERSION" ]]; then
   FRANKEN_VERSION="$STORED_FRANKEN_VERSION"
   _say "Using stored FrankenPHP version: $FRANKEN_VERSION"
 else
@@ -398,9 +388,9 @@ else
   FRANKEN_VERSION=$(_ask "FrankenPHP version [${_latest_ver}]:" "$_latest_ver")
 fi
 
-# Resolve port: env override → stored value → prompt (default: 8090)
+# Port: env override → stored value → interactive prompt
 if [[ -n "${LAKE_PORT:-}" ]]; then
-  : # keep env override as-is
+  : # keep env override
 elif $LAKE_EXISTS && [[ -n "$STORED_LAKE_PORT" ]]; then
   LAKE_PORT="$STORED_LAKE_PORT"
   _say "Using stored port: $LAKE_PORT"
@@ -410,18 +400,27 @@ fi
 
 COMPOSER_URL="https://getcomposer.org/composer.phar"
 
-mkdir -p "$TOOLS_DIR"
-
-# Linux filenames use "x86_64"/"aarch64"; Mac uses "x86_64"/"arm64" — pass uname -m through directly
-_say "OS: $FRANKEN_OS  ARCH: $FRANKEN_ARCH  Binary: $FRANKEN_FILENAME"
-
 # ----------------------------
-# BUILD DOWNLOAD URL
+# CHECK FOR FRANKEN UPDATE
 # ----------------------------
 
-# Binaries are plain executables (no tar.gz).
-# Latest:  https://github.com/php/frankenphp/releases/latest/download/<file>
-# Pinned:  https://github.com/php/frankenphp/releases/download/v<ver>/<file>
+# Trigger re-download if either the platform (OS/arch) or the pinned version
+# has changed since the last run. Both checks live here so the logic is in one place.
+# Binaries are plain executables (no tar.gz):
+#   latest: .../releases/latest/download/<file>
+#   pinned: .../releases/download/v<ver>/<file>
+
+if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_OS" ]]; then
+  if [[ "$STORED_FRANKEN_OS" != "$FRANKEN_OS" || "$STORED_FRANKEN_ARCH" != "$FRANKEN_ARCH" ]]; then
+    _say "Platform changed: was ${STORED_FRANKEN_OS}/${STORED_FRANKEN_ARCH}, now ${FRANKEN_OS}/${FRANKEN_ARCH}"
+    NEEDS_FRANKEN_UPDATE=true
+  fi
+fi
+
+if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_VERSION" ]] && [[ "$STORED_FRANKEN_VERSION" != "$FRANKEN_VERSION" ]]; then
+  _say "Version change: $STORED_FRANKEN_VERSION → $FRANKEN_VERSION"
+  NEEDS_FRANKEN_UPDATE=true
+fi
 
 if [[ "$FRANKEN_VERSION" == "latest" ]]; then
   FRANKEN_URL="https://github.com/php/frankenphp/releases/latest/download/${FRANKEN_FILENAME}"
@@ -613,8 +612,6 @@ else
   chmod +x "$COMPOSER_BIN"
   _say "Composer ready."
 fi
-
-cd "$SCRIPT_DIR"
 
 # ----------------------------
 # INSTALL Laravel Installer
