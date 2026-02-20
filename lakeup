@@ -225,32 +225,101 @@ if [[ "${1:-}" == "version" ]]; then
 fi
 
 # ----------------------------
-# EXISTING PROJECT GUARD
+# DETECT OS + ARCH
 # ----------------------------
 
-if [[ -f "artisan" ]]; then
-  _say "A Laravel project already exists in this directory."
-  _say "To start fresh, run one of:"
-  _say "  ./lakeup clean   — remove Laravel files, keep .lake/ binaries"
-  _say "  ./lakeup purge   — remove everything and start over"
-  exit 1
+_OS="$(uname -s)"
+_ARCH="$(uname -m)"
+
+case "$_OS" in
+  Linux*)  FRANKEN_OS="linux" ;;
+  Darwin*) FRANKEN_OS="mac"   ;;
+  *)       _say "Unsupported OS: $_OS"; exit 1 ;;
+esac
+
+FRANKEN_ARCH="$_ARCH"
+FRANKEN_FILENAME="frankenphp-${FRANKEN_OS}-${FRANKEN_ARCH}"
+
+# ----------------------------
+# RESOLVE PATHS
+# ----------------------------
+
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR="$(pwd)"
+fi
+TOOLS_DIR="$SCRIPT_DIR/.lake"
+FRANKEN_BIN="$TOOLS_DIR/frankenphp"
+COMPOSER_BIN="$TOOLS_DIR/composer.phar"
+LAKE_INFO_FILE="$TOOLS_DIR/.info"
+
+# ----------------------------
+# DETECT SETUP MODE
+# ----------------------------
+
+LARAVEL_EXISTS=false
+LAKE_EXISTS=false
+NEEDS_FRANKEN_UPDATE=false
+STORED_FRANKEN_VERSION=""
+STORED_FRANKEN_OS=""
+STORED_FRANKEN_ARCH=""
+STORED_LAKE_PORT=""
+
+[[ -f "$SCRIPT_DIR/artisan" ]] && LARAVEL_EXISTS=true
+[[ -d "$TOOLS_DIR" ]]          && LAKE_EXISTS=true
+
+if $LAKE_EXISTS && [[ -f "$LAKE_INFO_FILE" ]]; then
+  STORED_FRANKEN_VERSION=$(grep "^FRANKEN_VERSION=" "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
+  STORED_FRANKEN_OS=$(grep     "^FRANKEN_OS="      "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
+  STORED_FRANKEN_ARCH=$(grep   "^FRANKEN_ARCH="    "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
+  STORED_LAKE_PORT=$(grep      "^LAKE_PORT="       "$LAKE_INFO_FILE" 2>/dev/null | cut -d= -f2-)
+fi
+
+# Flag re-download when platform changed
+if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_OS" ]]; then
+  if [[ "$STORED_FRANKEN_OS" != "$FRANKEN_OS" || "$STORED_FRANKEN_ARCH" != "$FRANKEN_ARCH" ]]; then
+    _say "Platform changed: was ${STORED_FRANKEN_OS}/${STORED_FRANKEN_ARCH}, now ${FRANKEN_OS}/${FRANKEN_ARCH}"
+    NEEDS_FRANKEN_UPDATE=true
+  fi
 fi
 
 # ----------------------------
 # INTRODUCTION
 # ----------------------------
 
-echo "┌─────────────────────────────────────────────────┐"
-echo "│  Here's what Lake will do                       │"
-echo "├─────────────────────────────────────────────────┤"
-echo "│                                                 │"
-echo "│  1. 📥  Download FrankenPHP & Composer          │"
-echo "│  2. 🚀  Create a new Laravel project            │"
-echo "│  3. 🔧  Configure FrankenPHP as web server      │"
-echo "│  4. 💾  Set up database & run migrations         │"
-echo "│  5. 🎉  Your app will be ready to go!           │"
-echo "│                                                 │"
-echo "└─────────────────────────────────────────────────┘"
+if $LARAVEL_EXISTS && ! $LAKE_EXISTS; then
+  echo "┌─────────────────────────────────────────────────┐"
+  echo "│  Restoring .lake/ for existing project          │"
+  echo "├─────────────────────────────────────────────────┤"
+  echo "│                                                 │"
+  echo "│  Laravel is already installed. Lake will:       │"
+  echo "│  1. 📥  Download FrankenPHP & Composer          │"
+  echo "│  2. 🔧  Recreate .lake/ shims & config          │"
+  echo "│  3. ✅  Your dev environment will be ready!     │"
+  echo "│                                                 │"
+  echo "└─────────────────────────────────────────────────┘"
+elif $LARAVEL_EXISTS && $LAKE_EXISTS; then
+  echo "┌─────────────────────────────────────────────────┐"
+  echo "│  Lake environment check                         │"
+  echo "├─────────────────────────────────────────────────┤"
+  echo "│                                                 │"
+  echo "│  Verifying FrankenPHP & shims are up to date.  │"
+  echo "│                                                 │"
+  echo "└─────────────────────────────────────────────────┘"
+else
+  echo "┌─────────────────────────────────────────────────┐"
+  echo "│  Here's what Lake will do                       │"
+  echo "├─────────────────────────────────────────────────┤"
+  echo "│                                                 │"
+  echo "│  1. 📥  Download FrankenPHP & Composer          │"
+  echo "│  2. 🚀  Create a new Laravel project            │"
+  echo "│  3. 🔧  Configure FrankenPHP as web server      │"
+  echo "│  4. 💾  Set up database & run migrations         │"
+  echo "│  5. 🎉  Your app will be ready to go!           │"
+  echo "│                                                 │"
+  echo "└─────────────────────────────────────────────────┘"
+fi
 echo ""
 
 # ----------------------------
@@ -307,9 +376,17 @@ unset _ok _curl_row _node_row
 # CONFIG
 # ----------------------------
 
-# Resolve FrankenPHP version: env override → prompt (with latest as default)
+# Resolve FrankenPHP version: env override → stored value → prompt (latest as default)
 if [[ -n "${FRANKEN_VERSION:-}" ]]; then
   _say "FrankenPHP version pinned by env: $FRANKEN_VERSION"
+  # Flag re-download if the pinned version differs from what's installed
+  if $LAKE_EXISTS && [[ -f "$FRANKEN_BIN" ]] && [[ -n "$STORED_FRANKEN_VERSION" ]] && [[ "$STORED_FRANKEN_VERSION" != "$FRANKEN_VERSION" ]]; then
+    _say "Version change: $STORED_FRANKEN_VERSION → $FRANKEN_VERSION"
+    NEEDS_FRANKEN_UPDATE=true
+  fi
+elif $LAKE_EXISTS && [[ -n "$STORED_FRANKEN_VERSION" ]] && ! $NEEDS_FRANKEN_UPDATE; then
+  FRANKEN_VERSION="$STORED_FRANKEN_VERSION"
+  _say "Using stored FrankenPHP version: $FRANKEN_VERSION"
 else
   _say "Checking latest FrankenPHP version..."
   _latest_ver=$(curl -sI "https://github.com/php/frankenphp/releases/latest" \
@@ -321,41 +398,21 @@ else
   FRANKEN_VERSION=$(_ask "FrankenPHP version [${_latest_ver}]:" "$_latest_ver")
 fi
 
-# If LAKE_PORT is not set via env, prompt the user (default: 8090)
-if [[ -z "${LAKE_PORT:-}" ]]; then
+# Resolve port: env override → stored value → prompt (default: 8090)
+if [[ -n "${LAKE_PORT:-}" ]]; then
+  : # keep env override as-is
+elif $LAKE_EXISTS && [[ -n "$STORED_LAKE_PORT" ]]; then
+  LAKE_PORT="$STORED_LAKE_PORT"
+  _say "Using stored port: $LAKE_PORT"
+else
   LAKE_PORT=$(_ask "Dev server port [8090]:" "8090")
 fi
-COMPOSER_URL="https://getcomposer.org/composer.phar"
 
-# All tools live in .lake/ so Composer won't count them as "existing files"
-if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-else
-  SCRIPT_DIR="$(pwd)"   # piped mode (curl ... | bash): use current directory
-fi
-TOOLS_DIR="$SCRIPT_DIR/.lake"
-FRANKEN_BIN="$TOOLS_DIR/frankenphp"
-COMPOSER_BIN="$TOOLS_DIR/composer.phar"
+COMPOSER_URL="https://getcomposer.org/composer.phar"
 
 mkdir -p "$TOOLS_DIR"
 
-# ----------------------------
-# DETECT OS + ARCH
-# ----------------------------
-
-_OS="$(uname -s)"
-_ARCH="$(uname -m)"
-
-case "$_OS" in
-  Linux*)  FRANKEN_OS="linux" ;;
-  Darwin*) FRANKEN_OS="mac"   ;;
-  *)       _say "Unsupported OS: $_OS"; exit 1 ;;
-esac
-
 # Linux filenames use "x86_64"/"aarch64"; Mac uses "x86_64"/"arm64" — pass uname -m through directly
-FRANKEN_ARCH="$_ARCH"
-FRANKEN_FILENAME="frankenphp-${FRANKEN_OS}-${FRANKEN_ARCH}"
-
 _say "OS: $FRANKEN_OS  ARCH: $FRANKEN_ARCH  Binary: $FRANKEN_FILENAME"
 
 # ----------------------------
@@ -373,8 +430,13 @@ else
 fi
 
 # ----------------------------
-# DOWNLOAD FrankenPHP
+# DOWNLOAD / UPDATE FrankenPHP
 # ----------------------------
+
+if $NEEDS_FRANKEN_UPDATE; then
+  _say "Re-downloading FrankenPHP (platform or version change detected)..."
+  rm -f "$FRANKEN_BIN"
+fi
 
 if [[ -f "$FRANKEN_BIN" ]]; then
   _say "FrankenPHP already in .lake/, skipping download."
@@ -384,6 +446,14 @@ else
   chmod +x "$FRANKEN_BIN"
   _say "FrankenPHP ready."
 fi
+
+# Write/update .lake/.info so future runs know the installed platform + version
+cat > "$LAKE_INFO_FILE" <<INFOEOF
+FRANKEN_VERSION=${FRANKEN_VERSION}
+FRANKEN_OS=${FRANKEN_OS}
+FRANKEN_ARCH=${FRANKEN_ARCH}
+LAKE_PORT=${LAKE_PORT}
+INFOEOF
 
 # .lake/php — strips Composer's -d flags then delegates to frankenphp php-cli
 # Also auto-patches PHP_BINARY references in vendor/ on first call per project.
@@ -445,16 +515,14 @@ SHIMEOF
 chmod +x "$TOOLS_DIR/php"
 
 # .lake/composer — runs composer.phar with PHP_BINARY set so @php hooks work
-if [[ ! -f "$TOOLS_DIR/composer" ]]; then
-  cat > "$TOOLS_DIR/composer" <<'SHIMEOF'
+cat > "$TOOLS_DIR/composer" <<'SHIMEOF'
 #!/usr/bin/env bash
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PHP_BINARY="$DIR/php"
 export PATH="$DIR:$PATH"
 exec "$DIR/frankenphp" php-cli "$DIR/composer.phar" "$@"
 SHIMEOF
-  chmod +x "$TOOLS_DIR/composer"
-fi
+chmod +x "$TOOLS_DIR/composer"
 
 # .lake/fix-php-binary — Composer post-autoload-dump hook.
 # FrankenPHP php-cli leaves the PHP_BINARY constant empty. Packages that pass
